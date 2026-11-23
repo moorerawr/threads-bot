@@ -1,0 +1,58 @@
+name: Threads post
+
+on:
+  schedule:
+    - cron: "0 8 * * *"
+    - cron: "30 11 * * *"
+    - cron: "30 15 * * *"
+    - cron: "30 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: threads-post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Random delay
+        if: github.event_name == 'schedule'
+        run: sleep $((RANDOM % 900))
+
+      - name: Create config.py from secrets
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os
+          with open("config.py", "w", encoding="utf-8") as f:
+              f.write(f"GEMINI_API_KEY = {os.environ['GEMINI_API_KEY']!r}\n")
+              f.write(f"THREADS_ACCESS_TOKEN = {os.environ['THREADS_ACCESS_TOKEN']!r}\n")
+          PY
+
+      - name: Generate and publish one post
+        run: python threads_bot.py --once
+
+      - name: Save post history
+        if: always()
+        run: |
+          git config user.name "threads-bot"
+          git config user.email "threads-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || (git commit -m "update history" && git push)
